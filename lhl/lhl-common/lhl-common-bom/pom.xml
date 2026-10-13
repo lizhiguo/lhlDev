@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.lhl</groupId>
+        <artifactId>lhl-common</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>lhl-common-bom</artifactId>
+    <packaging>pom</packaging>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- 核心模块 -->
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>lhl-common-core</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <!-- 数据模块 -->
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>common-data-jpa</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>common-data-mybatis</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <!-- ddd模块 -->
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>ddd-data-jpa</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <!-- start模块 -->
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>lhl-starter</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>api</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>api-autoconfigure</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>api-spring-boot-starter</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>api-spring-boot-sample</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <!-- jwt-starter模块 -->
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>jwt-api</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>jwt-autoconfigure</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>jwt-spring-boot-starter</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>jwt-spring-boot-sample</artifactId>
+                <version>${revision}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+
+</project>

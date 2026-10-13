@@ -1,0 +1,19 @@
+management:
+  server:
+    port: 10001
+  endpoints:
+    web:
+      base-path: /
+      exposure:
+        include: hawtio,jolokia
+    jmx:
+      exposure:
+        include: health,info,loggers,httpexchanges
+  info:
+    env:
+      enabled: true
+    java:
+      enabled: true
+hawtio:
+  authenticationEnabled: false
+  role: ROLE_ADMIN
