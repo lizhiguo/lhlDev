@@ -1,0 +1,5 @@
+com.lhl.jwt.autoconfigure.JwtSecurityAutoConfiguration
+com.lhl.jwt.autoconfigure.JwtSecurityFilterChainAutoConfiguration
+com.lhl.jwt.autoconfigure.JwtWebMvcAutoConfiguration
+com.lhl.jwt.autoconfigure.MobileCodeValidatorAutoConfiguration
+com.lhl.jwt.autoconfigure.JwtTokenEndpointAutoConfiguration

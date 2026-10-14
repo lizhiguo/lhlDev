@@ -1,29 +1,39 @@
 package com.lhl.jwt.security.configs
 
-import com.lhl.jwt.handler.JwtAuthenticationFailureHandler
 import com.lhl.jwt.security.filters.WxAuthenticationFilter
 import org.springframework.security.authentication.AuthenticationManager
 import org.springframework.security.config.annotation.web.HttpSecurityBuilder
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer
+import org.springframework.security.web.authentication.AuthenticationFailureHandler
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler
 import org.springframework.security.web.authentication.logout.LogoutFilter
 
-class WxConfigurer<T : WxConfigurer<T, B>, B : HttpSecurityBuilder<B>> :
-    AbstractHttpConfigurer<T, B>() {
+/**
+ * 注册微信登录过滤器。
+ */
+class WxConfigurer<B : HttpSecurityBuilder<B>>(
+    private val wxAuthenticationFilter: WxAuthenticationFilter
+) : AbstractHttpConfigurer<WxConfigurer<B>, B>() {
 
-    private val wxAuthenticationFilter = WxAuthenticationFilter()
+    private var authenticationManager: AuthenticationManager? = null
 
     override fun configure(builder: B) {
-        wxAuthenticationFilter.setAuthenticationManager(builder.getSharedObject(AuthenticationManager::class.java))
-        builder.addFilterAfter(wxAuthenticationFilter, LogoutFilter::class.java)
+        (authenticationManager ?: builder.getSharedObject(AuthenticationManager::class.java))
+            ?.let { wxAuthenticationFilter.setAuthenticationManager(it) }
+        builder.addFilterBefore(wxAuthenticationFilter, LogoutFilter::class.java)
     }
 
-    fun authenticationSuccessHandler(successHandler: AuthenticationSuccessHandler): WxConfigurer<T, B> {
+    fun authenticationManager(authenticationManager: AuthenticationManager): WxConfigurer<B> {
+        this.authenticationManager = authenticationManager
+        return this
+    }
+
+    fun authenticationSuccessHandler(successHandler: AuthenticationSuccessHandler): WxConfigurer<B> {
         wxAuthenticationFilter.setAuthenticationSuccessHandler(successHandler)
         return this
     }
 
-    fun authenticationFailureHandler(failureHandler: JwtAuthenticationFailureHandler): WxConfigurer<T, B> {
+    fun authenticationFailureHandler(failureHandler: AuthenticationFailureHandler): WxConfigurer<B> {
         wxAuthenticationFilter.setAuthenticationFailureHandler(failureHandler)
         return this
     }

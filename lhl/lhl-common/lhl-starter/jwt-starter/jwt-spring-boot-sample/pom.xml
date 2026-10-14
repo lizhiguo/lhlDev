@@ -10,6 +10,12 @@
     </parent>
 
     <artifactId>jwt-spring-boot-sample</artifactId>
+
+    <properties>
+        <!-- 与 lhl-bom 中 spring-boot-dependencies 的版本保持一致 -->
+        <spring-boot.version>4.1.1</spring-boot.version>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.lhl</groupId>
@@ -20,5 +26,27 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <!-- MyBatis 读通道：注解式 Mapper，无需 XML -->
+        <dependency>
+            <groupId>org.mybatis.spring.boot</groupId>
+            <artifactId>mybatis-spring-boot-starter</artifactId>
+        </dependency>
+        <!-- MySQL 驱动，版本由 spring-boot-dependencies 托管 -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- 支持 mvn spring-boot:run 直接启动示例；版本需与 spring-boot.version 保持一致 -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring-boot.version}</version>
+            </plugin>
+        </plugins>
+    </build>
 </project>

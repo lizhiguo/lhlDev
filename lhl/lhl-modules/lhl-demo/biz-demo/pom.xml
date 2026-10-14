@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.lhl</groupId>
+        <artifactId>lhl-demo</artifactId>
+        <version>${revision}</version>
+    </parent>
+
+    <artifactId>biz-demo</artifactId>
+
+    <dependencies>
+        <!-- 公共核心：异常、错误码、分页、雪花ID、领域事件基类 -->
+        <dependency>
+            <groupId>com.lhl</groupId>
+            <artifactId>lhl-common-core</artifactId>
+            <version>${revision}</version>
+        </dependency>
+        <!-- JPA 基础设施：AbstractAuditableJpaEntity、IBaseJpaRepository -->
+        <dependency>
+            <groupId>com.lhl</groupId>
+            <artifactId>common-data-jpa</artifactId>
+            <version>${revision}</version>
+        </dependency>
+        <!-- MyBatis 基础设施：Page.toPageResult -->
+        <dependency>
+            <groupId>com.lhl</groupId>
+            <artifactId>common-data-mybatis</artifactId>
+            <version>${revision}</version>
+        </dependency>
+        <!-- DDD 基础设施：IBaseDomainRepository、BaseJpaAdapter、jmolecules 注解 -->
+        <dependency>
+            <groupId>com.lhl</groupId>
+            <artifactId>ddd-data-jpa</artifactId>
+            <version>${revision}</version>
+        </dependency>
+        <!-- Web / JPA /  actuator -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- MyBatis 读通道 + PageHelper 分页 -->
+        <dependency>
+            <groupId>org.mybatis.spring.boot</groupId>
+            <artifactId>mybatis-spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.pagehelper</groupId>
+            <artifactId>pagehelper-spring-boot-starter</artifactId>
+        </dependency>
+
+        <!-- Swagger 注解（仅注解，不引入 UI 以保证 Spring Boot 4 兼容） -->
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations-jakarta</artifactId>
+        </dependency>
+
+        <!-- 内存库，开箱即跑 -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- 测试 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mybatis.spring.boot</groupId>
+            <artifactId>mybatis-spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.mockk</groupId>
+            <artifactId>mockk-jvm</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>

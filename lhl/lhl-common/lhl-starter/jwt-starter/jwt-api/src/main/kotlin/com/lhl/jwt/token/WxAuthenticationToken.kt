@@ -3,31 +3,32 @@ package com.lhl.jwt.token
 import io.swagger.v3.oas.annotations.media.Schema
 import org.springframework.security.authentication.AbstractAuthenticationToken
 import org.springframework.security.core.GrantedAuthority
+import java.util.Collections
 
+/**
+ * 微信登录认证令牌（企业微信 / 公众号 / 小程序）。
+ *
+ * @param wxId   企业微信 userId、公众号/小程序 openId
+ * @param mobile 手机号，可空
+ * @param type   cp=企业微信，mp=公众号，miniApp=小程序
+ */
 @Schema(name = "微信通用token")
 class WxAuthenticationToken(
     var wxId: String,
-    var mobile: String?,
-    var type: String?
-) : AbstractAuthenticationToken(null) {
+    var mobile: String? = null,
+    var type: String? = null,
+    authorities: Collection<GrantedAuthority> = Collections.emptyList(),
+    authenticated: Boolean = false
+) : AbstractAuthenticationToken(authorities) {
 
-    constructor(
-        wxId: String,
-        authorities: Collection<GrantedAuthority>
-    ) : this(wxId, null, null) {
-        isAuthenticated = true
-    }
-
-    constructor(
-        wxId: String,
-        mobile: String?,
-        type: String?,
-        authorities: Collection<GrantedAuthority>
-    ) : this(wxId, mobile, type) {
-        super.setAuthenticated(true)
+    init {
+        if (authenticated) {
+            super.setAuthenticated(true)
+        }
     }
 
     override fun getCredentials(): Any? = mobile
+
     override fun getPrincipal(): Any = wxId
 
     override fun setAuthenticated(isAuthenticated: Boolean) {
@@ -37,9 +38,5 @@ class WxAuthenticationToken(
             )
         }
         super.setAuthenticated(false)
-    }
-
-    override fun eraseCredentials() {
-        super.eraseCredentials()
     }
 }

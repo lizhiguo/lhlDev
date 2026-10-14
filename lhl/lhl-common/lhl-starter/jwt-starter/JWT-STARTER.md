@@ -1,402 +1,19 @@
-# jwt-starter 模块详解
+# JWT Starter
 
-## 一、模块架构
+基于 Spring Security 7 + nimbus-jose-jwt 的无状态 JWT 认证 starter，提供账号密码 / 手机验证码 / 微信三套登录方式、token 自动续期、refresh token 轮换、登出黑名单，以及 `@CurrentUser` 参数注入。
 
-```
-lhl-starter/
-  jwt-starter/                          # 父POM（pom打包）
-  ├── jwt-api/                          # API层 — 核心接口与领域模型
-  │   ├── JwtUser.kt                    # Spring Security User 扩展
-  │   ├── domain/dto/PayloadDTO.kt      # JWT 荷载数据
-  │   ├── domain/bo/WxExtBO.kt          # 微信扩展数据
-  │   ├── domain/vo/AccountVO.kt        # 账号VO
-  │   ├── domain/vo/WxLoginVO.kt        # 微信登录VO
-  │   ├── exception/   (6个异常类)       # JWT 异常体系
-  │   ├── handler/     (5个处理器)       # 认证成功/失败/刷新/登出处理器
-  │   ├── token/       (3个Token类)      # 认证令牌
-  │   ├── utils/       (3个工具类)       # JwtUtils, JwtConstant, CacheManager
-  │   └── service/JwtUserDetailsService.kt  # 用户详情服务接口
-  │
-  ├── jwt-autoconfigure/                # 自动配置层
-  │   ├── autoconfigure/
-  │   │   ├── JwtProperties.kt          # 配置属性 jwt.security.*
-  │   │   └── SecurityConfig.kt         # Spring Security 安全配置
-  │   ├── security/configs/ (4个)        # HttpSecurity Configurer
-  │   ├── security/filters/ (5个)        # Servlet 过滤器链
-  │   ├── security/providers/ (3个)      # 认证 Provider
-  │   ├── resolver/ (2个)                # @CurrentUser 参数解析器
-  │   └── resources/META-INF/spring.factories
-  │
-  ├── jwt-spring-boot-starter/          # Starter 聚合模块
-  │   └── pom.xml                       # 依赖 jwt-autoconfigure + spring-boot
-  │
-  └── jwt-spring-boot-sample/           # 示例应用
-      └── JwtSampleApplication.kt
-```
+## 模块结构
 
-### 依赖关系链
+| 模块 | 说明 |
+| --- | --- |
+| `jwt-api` | 核心逻辑：令牌签发/校验、处理器、Store 抽象。不依赖 Spring Boot，可直接单测 |
+| `jwt-autoconfigure` | 自动配置、过滤器链、`@CurrentUser` 解析、内置刷新端点 |
+| `jwt-spring-boot-starter` | 打包入口，引入即用 |
+| `jwt-spring-boot-sample` | 可运行的示例应用，用户数据落 MySQL，覆盖登录 / 校验 / 权限 |
 
-```
-jwt-spring-boot-starter
-  └── jwt-autoconfigure
-       └── jwt-api
-            └── lhl-common-core
-                 └── (spring-context, hutool, jackson, etc.)
-```
+## 快速开始
 
----
-
-## 二、核心数据结构
-
-### 2.1 PayloadDTO — JWT 荷载数据
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `jti` | `String?` | JWT ID，唯一标识 |
-| `iss` | `String?` | 签发人 |
-| `exp` | `Long?` | 过期时间（epoch秒） |
-| `sub` | `String?` | 主题（通常存用户名） |
-| `aud` | `String?` | 受众 |
-| `nbf` | `Long?` | 生效时间 |
-| `iat` | `Long?` | 签发时间 |
-| `username` | `String?` | 用户名 |
-| `gender` | `String?` | 性别 |
-| `birthday` | `String?` | 出生日期 |
-| `isAdmin` | `Boolean?` | 是否管理员 |
-| `authorities` | `List<String>?` | 权限列表 |
-
-### 2.2 JwtUser — 用户实体
-
-继承 `org.springframework.security.core.userdetails.User`，扩展字段：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `salt` | `String?` | 加密盐值 |
-| `userId` | `String?` | 用户ID |
-| `wxExtBO` | `WxExtBO?` | 微信扩展数据 |
-
-### 2.3 Token 类体系
-
-```
-AbstractAuthenticationToken
-  ├── JwtAuthenticationToken        # 持有 JWT 令牌的认证
-  ├── MobileCodeAuthenticationToken # 手机验证码认证
-  └── WxAuthenticationToken        # 微信认证（公众号/小程序/企业微信）
-```
-
-#### JwtAuthenticationToken
-
-| 构造方式 | 用途 |
-|----------|------|
-| `JwtAuthenticationToken(token: String)` | 未认证——从请求头提取 token 后创建 |
-| `JwtAuthenticationToken(principal, token, authorities)` | 已认证——Provider 认证成功后的结果 |
-
-- `token: String?` — 原始 JWT 字符串
-- `principal: UserDetails?` — 认证后的用户对象
-
-#### MobileCodeAuthenticationToken
-
-| 构造方式 | 用途 |
-|----------|------|
-| `MobileCodeAuthenticationToken(principal, credentials)` | 未认证——手机号+验证码 |
-| `MobileCodeAuthenticationToken(principal, authorities)` | 已认证——认证成功 |
-
-- `principal` — 手机号
-- `credentials` — 验证码
-
-#### WxAuthenticationToken
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `wxId` | `String` | 微信ID（企业号:userId, 公众号:openId, 小程序:openId） |
-| `mobile` | `String?` | 手机号 |
-| `type` | `String?` | 类型: `cp`(企业微信), `mp`(公众号), `miniApp`(小程序) |
-
-### 2.4 异常体系
-
-```
-RuntimeException
-  ├── BizException (lhl-common-core)
-  │   ├── JwtException          # 通用JWT异常
-  │   └── JwtParamException     # 参数异常
-  │
-  └── AuthenticationException (Spring Security)
-      ├── JwtExpireException         # Token过期
-      ├── JwtParseException          # Token解析失败
-      ├── JwtSignatureVerifyException # 签名验证失败
-      └── JwtVerificationFailedException # 验证失败
-```
-
-### 2.5 配置属性
-
-前缀: `jwt.security`
-
-| 属性 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `permitUrls` | `String?` | `null` | 白名单URL（逗号分隔） |
-| `tokenRefreshInterval` | `Int` | `0` | Token刷新间隔（秒），0=不刷新 |
-| `clearInterval` | `Int` | `60000` | 黑名单清理间隔（毫秒） |
-
----
-
-## 三、请求处理流程
-
-### 3.1 账号密码登录流程
-
-```
-POST /login
-
-客户端                               Filter链                               Provider
-  │                                   │                                      │
-  │  POST /login (username+password)  │                                      │
-  │──────────────────────────────────>│                                      │
-  │                                   │                                      │
-  │              LoginAuthenticationFilter.attemptAuthentication()           │
-  │              从 body 或 param 提取 username/password                      │
-  │              创建 UsernamePasswordAuthenticationToken                    │
-  │                                   │                                      │
-  │                                   │── authenticate(token) ──────────────>│
-  │                                   │                                      │
-  │                                   │       DaoAuthenticationProvider      │
-  │                                   │       ├── loadUserByUsername()       │
-  │                                   │       ├── BCryptPasswordEncoder      │
-  │                                   │       └── 密码比对                   │
-  │                                   │<─────── JwtAuthenticationToken ─────│
-  │                                   │       (已认证, 含UserDetails)         │
-  │                                   │                                      │
-  │              LoginSuccessHandler.onAuthenticationSuccess()               │
-  │               ├── JwtUtils.createToken() 生成JWT                         │
-  │               └── Response Header: Authorization: Bearer <token>         │
-  │<──────────────────────────────────│                                      │
-  │ 200 OK (Authorization头)          │                                      │
-```
-
-### 3.2 带 Token 请求验证流程
-
-```
-GET /api/resource (Authorization: Bearer <token>)
-
-客户端                               Filter链                               Provider
-  │                                   │                                      │
-  │  GET /api/resource                │                                      │
-  │  Authorization: Bearer xxx        │                                      │
-  │──────────────────────────────────>│                                      │
-  │                                   │                                      │
-  │        JwtAuthenticationFilter.doFilterInternal()                        │
-  │        1. 检查白名单 → 通过则放行                                        │
-  │        2. 检查黑名单 → 在黑名单中则返回过期错误                            │
-  │        3. 提取token → 创建JwtAuthenticationToken                         │
-  │                                   │                                      │
-  │                                   │── authenticate(token) ──────────────>│
-  │                                   │                                      │
-  │                                   │    JwtAuthenticationProvider         │
-  │                                   │    ├── SignedJWT.parse(token)        │
-  │                                   │    ├── 检查expirationTime            │
-  │                                   │    ├── loadUserByUsername(subject)   │
-  │                                   │    └── 返回JwtAuthenticationToken    │
-  │                                   │<─────── (已认证, 含UserDetails) ────│
-  │                                   │                                      │
-  │              JwtRefreshSuccessHandler.onAuthenticationSuccess()          │
-  │               ├── 判断是否需要刷新token                                   │
-  │               ├── 需要则生成新token并设置到Response Header                │
-  │               └── 设置SecurityContext                                    │
-  │                                   │                                      │
-  │  ← 请求继续执行到 Controller       │                                      │
-```
-
-### 3.3 手机验证码登录流程
-
-```
-POST /mobileCodeLogin
-
-客户端                               Filter链                               Provider
-  │                                   │                                      │
-  │  POST /mobileCodeLogin            │                                      │
-  │  (mobile=xxx&code=xxx)            │                                      │
-  │──────────────────────────────────>│                                      │
-  │                                   │                                      │
-  │      MobileCodeAuthenticationFilter.attemptAuthentication()              │
-  │      从 body 或 param 提取 mobile/code                                    │
-  │      创建 MobileCodeAuthenticationToken                                  │
-  │                                   │                                      │
-  │                                   │── authenticate(token) ──────────────>│
-  │                                   │                                      │
-  │                                   │  MobileCodeAuthenticationProvider    │
-  │                                   │  └── loadUserByMobile(mobile)        │
-  │                                   │<─────── JwtAuthenticationToken ─────│
-  │                                   │                                      │
-  │              LoginSuccessHandler.onAuthenticationSuccess()               │
-  │              └── 生成JWT并设置到Response Header                           │
-  │<──────────────────────────────────│                                      │
-```
-
-### 3.4 微信登录流程
-
-```
-POST /wxLogin
-
-客户端                               Filter链                               Provider
-  │                                   │                                      │
-  │  POST /wxLogin                    │                                      │
-  │  (wxId=xxx&mobile=xxx&type=cp)    │                                      │
-  │──────────────────────────────────>│                                      │
-  │                                   │                                      │
-  │       WxAuthenticationFilter.attemptAuthentication()                     │
-  │       从 param 提取 wxId/mobile/type                                      │
-  │       创建 WxAuthenticationToken                                         │
-  │                                   │                                      │
-  │                                   │── authenticate(token) ──────────────>│
-  │                                   │                                      │
-  │                                   │     WxAuthenticationProvider         │
-  │                                   │     ├── type="cp"    → loadUserByMobile()  │
-  │                                   │     ├── type="mp"    → loadUserByOpenId()   │
-  │                                   │     └── type="miniApp" → loadUserByOpenId() │
-  │                                   │<─────── JwtAuthenticationToken ─────│
-  │                                   │                                      │
-  │              LoginSuccessHandler.onAuthenticationSuccess()               │
-  │              └── 生成JWT并设置到Response Header                           │
-  │<──────────────────────────────────│                                      │
-```
-
-### 3.5 登出流程
-
-```
-POST /logout (Authorization: Bearer <token>)
-
-客户端                               LogoutHandler链
-  │                                   │
-  │  POST /logout                     │
-  │  Authorization: Bearer xxx        │
-  │──────────────────────────────────>│
-  │                                   │
-  │  1. TokenClearLogoutHandler       │
-  │     └── 清除 UserCache 中的用户    │
-  │                                   │
-  │  2. LogoutBlacklistHandler        │
-  │     └── 解析token → 计算剩余过期时间 → 加入黑名单 (CacheManager)    │
-  │                                   │
-  │  3. HttpStatusReturningLogoutSuccessHandler                            │
-  │     └── 返回 200                   │
-  │<──────────────────────────────────│
-```
-
----
-
-## 四、SecurityConfig 过滤器链
-
-```
-HttpSecurity 配置的过滤器链顺序：
-
-CorsFilter
-  │
-  ├── OptionsRequestFilter (处理 OPTIONS 预检请求)
-  │
-  ├── LoginAuthenticationFilter       ──  /**/login POST
-  │   └── LoginConfigurer 注册
-  │
-  ├── WxAuthenticationFilter          ──  /wxLogin POST
-  │   └── WxConfigurer 注册
-  │
-  ├── MobileCodeAuthenticationFilter  ──  /mobileCodeLogin POST
-  │   └── MobileConfigurer 注册
-  │
-  ├── JwtAuthenticationFilter         ──  所有带 Authorization 头的请求
-  │   └── JwtAuthenticationConfigurer 注册
-  │
-  └── LogoutFilter                    ──  /logout
-      ├── TokenClearLogoutHandler
-      ├── LogoutBlacklistHandler
-      └── HttpStatusReturningLogoutSuccessHandler
-```
-
-### 安全配置要点
-
-| 配置项 | 说明 |
-|--------|------|
-| `cors().disable()` | 启用CORS |
-| `csrf().disable()` | 禁用CSRF（API服务无需CSRF） |
-| `formLogin().disable()` | 禁用表单登录 |
-| `sessionManagement().disable()` | 禁用Session（无状态） |
-| `CorsUtils.isPreFlightRequest` | 放行OPTIONS预检请求 |
-| `permitUrls` 配置 | 白名单URL（无需认证） |
-| 默认白名单 | `/mobileCodeLogin/**, /wxLogin/**, /login/**, /logout/**` |
-
----
-
-## 五、JWT 令牌生成与验证
-
-### 5.1 令牌生成 (`JwtUtils.createToken`)
-
-```
-1. 构建 PayloadDTO（含 jti, iat, exp, sub, username, authorities）
-2. 序列化为 JSON 字符串
-3. 创建 JWSHeader (algorithm: HS256)
-4. 创建 JWSObject (header + payload)
-5. 创建 MACSigner (key = md5("king" + secret))
-6. JWSObject.sign(signer) → 序列化
-7. 返回 JWT 字符串
-```
-
-### 5.2 令牌验证 (`JwtUtils.getPayLoadByToken`)
-
-```
-1. JWSObject.parse(token)
-2. 创建 MACVerifier (key = md5("king" + secret))
-3. jwsObject.verify(verifier) — 签名验证
-4. 解析 payload 为 PayloadDTO
-5. 检查 exp 是否过期
-6. 返回 PayloadDTO
-```
-
-### 5.3 密钥算法
-
-- 算法: `HS256` (HMAC-SHA256)
-- 基础密钥: `"king"` (常量 `TOKEN_SECRET`)
-- 动态密钥: `md5("king" + secret)` — secret 为用户名，实现每个用户不同密钥
-- 过期时间: 120秒（默认）
-
----
-
-## 六、缓存管理 (`CacheManager`)
-
-基于 `ConcurrentHashMap` 的内存缓存，主要用于 Token 黑名单管理。
-
-| 方法 | 说明 |
-|------|------|
-| `getData(key)` | 获取缓存数据，已过期返回 null |
-| `setData(key, data, expire)` | 设置缓存（expire=0 表示永不过期） |
-| `clear(key)` | 清除指定缓存 |
-| `clearAll()` | 清除所有缓存 |
-| `clearExpire()` | 清除所有已过期的缓存 |
-
----
-
-## 七、@CurrentUser 参数解析
-
-通过 `LoginUserHandlerMethodArgumentResolver` 实现，在 Controller 方法参数上使用 `@CurrentUser` 注解自动注入当前登录用户名。
-
-```kotlin
-@RestController
-class UserController {
-    @GetMapping("/me")
-    fun getCurrentUser(@CurrentUser username: String?): String {
-        return "当前用户: $username"
-    }
-}
-```
-
-解析流程：
-1. 从请求头 `Authorization` 提取 token
-2. 解析 token 获取 subject (用户名)
-3. 验证签名和过期时间
-4. 设置 `UserContext` (ThreadLocal)
-5. 返回用户名
-
----
-
-## 八、使用方式
-
-### 8.1 引入依赖
+### 1. 引入依赖
 
 ```xml
 <dependency>
@@ -405,24 +22,284 @@ class UserController {
 </dependency>
 ```
 
-### 8.2 实现 JwtUserDetailsService
+### 2. 实现用户查询
+
+starter 只定义 SPI，具体存储由业务方实现：
 
 ```kotlin
-@Component
-class MyUserDetailsService : JwtUserDetailsService {
+@Service
+class MyUserDetailsService(private val mapper: UserMapper) : JwtUserDetailsService {
+
+    // 必选：账号密码登录
     override fun loadUserByUsername(username: String): UserDetails {
-        // 从数据库查询用户
-        return JwtUser(username, "{bcrypt}encoded_password", listOf())
+        val user = mapper.selectByUsername(username) ?: throw UsernameNotFoundException(username)
+        return JwtUser(user.username, user.password, user.authorities.map(::SimpleGrantedAuthority))
     }
+
+    // 可选：手机验证码登录
+    override fun loadUserByMobile(mobile: String): UserDetails = loadUserByUsername(mobile)
+
+    // 可选：微信小程序 / 公众号登录
+    override fun loadUserByOpenId(openId: String): UserDetails = loadUserByUsername(openId)
 }
 ```
 
-### 8.3 配置参数
+> 未实现的方法默认抛出 `UsernameNotFoundException`，因此不存在的登录方式不会被意外认证通过。
+
+### 3. 配置
 
 ```yaml
 jwt:
   security:
-    permit-urls: /api/public/**,/health/**
-    token-refresh-interval: 1800  # 30分钟刷新一次
-    clear-interval: 60000         # 1分钟清理一次黑名单
+    # 必填，长度 >= 32，生产环境用环境变量注入
+    secret: ${JWT_SECRET}
+    issuer: lhl
+    audience: lhl-client
+    access-token-expiration: 2h
+    refresh-token-expiration: 7d
+    token-refresh-interval: 30m
+    permit-urls:
+      - /public/**
+    # 完全绕过 security 过滤器链（静态资源，连 JwtAuthenticationFilter 都不经过）
+    ignore-urls:
+      - /favicon.ico
+      - /static/**
+    cookie:
+      enabled: true
+      same-site: Lax
+    cors:
+      enabled: true
+      allowed-origin-patterns:
+        - "https://example.com"
 ```
+
+### 示例应用：jwt-spring-boot-sample
+
+`jwt-spring-boot-sample` 是一个可直接运行的完整示例，用户数据落在 MySQL，登录、校验、权限全链路可测。
+
+### 数据模型
+
+| 表 | 说明 |
+| --- | --- |
+| `sys_user` | 用户，`password` 为 BCrypt 散列；`mobile` / `wx_open_id` 分别支撑手机验证码登录与微信登录 |
+| `sys_role` | 角色与权限合表，`type=1` 是角色（`ROLE_ADMIN`），`type=2` 是权限（`USER_READ`） |
+| `sys_user_role` | 用户与角色/权限的多对多关联 |
+
+`schema.sql` 只建表（幂等），演示数据由 `SampleDataInitializer` 在启动时用 `PasswordEncoder` 编码后写入——口令散列没法写在 SQL 里。账号已存在则跳过，重复启动不会重置口令。
+
+### 演示账号
+
+| 账号 | 口令 | 角色 / 权限 | 用途 |
+| --- | --- | --- | --- |
+| `admin` | `admin123` | `ROLE_ADMIN` + `USER_READ/WRITE/DELETE` | 全部放行 |
+| `lhl` | `lhl123` | `ROLE_USER` + `USER_READ` | 只读，其他操作 403 |
+| `guest` | `guest123` | 无 | 全部 403 |
+| `blocked` | `blocked123` | `ROLE_USER`，但 `status=0` | 登录即被拒 |
+
+### 端点
+
+| 端点 | 方法 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| `/login` | POST | - | 账号密码登录，token 在响应头 |
+| `/mobileCodeLogin` | POST | - | 手机 + 验证码（`/sms/code/{mobile}` 下发，示例固定 `123456`） |
+| `/wxLogin` | POST | - | 微信，`type` 支持 `miniApp` / `mp` / `cp` |
+| `/refresh` | POST | - | 刷新令牌（轮换） |
+| `/logout` | POST | 已认证 | 登出，token 立即失效 |
+| `/auth/token` | POST | 已认证 | 返回完整令牌对（含 refreshToken） |
+| `/me` | GET | 已认证 | 当前用户：账号、主键、角色权限 |
+| `/user/list` | GET | `USER_READ` | 用户列表 |
+| `/user/{id}/status` | POST | `USER_WRITE` | 启用 / 禁用 |
+| `/user/{id}` | DELETE | `USER_DELETE` | 逻辑删除 |
+| `/admin/roles` | GET | `ROLE_ADMIN` | 角色与权限清单 |
+| `/public/hello` | GET | - | 白名单 |
+
+权限用方法级注解表达。starter 已开启 `@EnableMethodSecurity`，所以不需要改过滤器链：
+
+```kotlin
+@PreAuthorize("hasAuthority('USER_READ')")   // 权限，精确匹配 sys_role.role_code
+@PreAuthorize("hasRole('ADMIN')")            // 角色，自动补 ROLE_ 前缀
+```
+
+未认证返回 401，已认证但缺权限返回 403。
+
+### 跑起来
+
+```bash
+# 1. 建库（MySQL 8）
+docker exec -it mysql8 mysql -uroot -padmin \
+  -e "CREATE DATABASE IF NOT EXISTS lhl_jwt_sample DEFAULT CHARACTER SET utf8mb4"
+
+# 2. 启动（表与演示数据会自动创建）
+mvn -pl lhl-common/lhl-starter/jwt-starter/jwt-spring-boot-sample spring-boot:run
+```
+
+连接信息在 `application.yml`，可用环境变量覆盖：`DB_URL` / `DB_USERNAME` / `DB_PASSWORD` / `JWT_SECRET`。
+
+验证登录与权限：
+
+```bash
+# 登录，从响应头取 token
+curl -i -X POST http://localhost:8080/login \
+  -H "Content-Type: application/json" -d '{"username":"admin","password":"admin123"}'
+
+# 带 token 访问受保护端点
+curl http://localhost:8080/user/list -H "Authorization: Bearer <token>"
+```
+
+也可以直接跑现成的校验脚本：`src/test/http/api.http`（IntelliJ / VS Code HTTP Client 插件），覆盖白名单、三种登录、登录失败、token 轮换与篡改、权限矩阵、登出失效共 35 个请求，每个请求都带 `client.assert` 断言。地址与账号在文件头部用 `@name = value` 定义，无需在 IDE 里切换环境。
+
+两个容易踩的点：
+
+- 响应处理脚本用 `> {% %}`（收到响应后执行），请求前脚本用 `< {% %}`（请求行之前）。写反了 IDE 会报「JSON 标准不允许使用此类令牌」，而且该阶段 `response` 还不存在。
+- 需要 `response` 对象的断言只能放 `> {% %}`；脚本块与请求之间要空一行。
+
+> 脚本按文件顺序执行，各段依赖前面捕获的全局变量，请整体运行，不要单独点某一个请求。
+> 演示环境里 `/sms/code/{mobile}` 会把验证码直接返回给响应体，仅为方便联调，生产环境务必去掉。
+
+## 静态资源：`ignore-urls` vs `permit-urls`
+
+两者容易混淆，区别在于**是否进入过滤器链**：
+
+| 配置 | 走的链路 | CORS 过滤器 | 适合 |
+| --- | --- | --- | --- |
+| `permit-urls` | 进入过滤器链，只跳过认证 | 执行 | 需要带跨域头的公开接口 |
+| `ignore-urls` | `WebSecurity#ignoring`，整条链都不走 | 不执行 | 图标、JS/CSS、图片等静态资源 |
+
+`ignore-urls` 对应旧版 `WebSecurityConfigurerAdapter#configure(WebSecurity web)` 里的 `web.ignoring()`：不加的话 `/favicon.ico`、`/static/**` 会命中 `anyRequest().authenticated()` 而直接 401。
+
+## 端点
+
+| 端点 | 方法 | 说明 |
+| --- | --- | --- |
+| `/**/login` | POST | 账号密码登录，请求体 `{ "username": "...", "password": "..." }` |
+| `/mobileCodeLogin` | POST | 手机验证码登录，请求体 `{ "mobile": "...", "code": "..." }` |
+| `/wxLogin` | POST | 微信登录，请求体 `{ "wxId": "...", "type": "cp/mp/miniApp", "mobile": "..." }` |
+| `/refresh` | POST | 刷新令牌，请求体 `{ "refreshToken": "..." }`，返回新的令牌对 |
+| `/logout` | POST | 登出：token 加入黑名单立即失效，并吊销全部 refresh token |
+| 其余路径 | - | 默认全部需要认证 |
+
+登录成功时 token 写在响应头 `Authorization: Bearer <token>`（并通过 `Access-Control-Expose-Headers` 暴露给浏览器），前端取出后放入后续请求头即可。
+
+> 登录/登出类处理器不写响应体：过滤器链会继续向下执行，写体会导致响应被提前提交。
+> 需要在响应体中拿到 token 时，调用 `JwtTokenService#createTokenPair(userDetails)` 自建端点。
+
+## 获取当前登录用户
+
+```kotlin
+@GetMapping("/me")
+fun me(@CurrentUser username: String): ApiResult<String> = ApiResult.success(data = username)
+
+@GetMapping("/me")
+fun me(@CurrentUser user: UserDetails): ApiResult<UserDetails> = ApiResult.success(data = user)
+```
+
+`@CurrentUser` 同时会把用户名写入 `UserContext`，业务代码可用 `UserContext.get()` 读取；请求结束后自动清理。
+
+## 认证链路
+
+```
+CorsFilter
+  └─ OptionsRequestFilter                    OPTIONS 预检直接返回
+  └─ LoginAuthenticationFilter               POST 账号密码登录
+  └─ MobileCodeAuthenticationFilter          POST 手机验证码登录
+  └─ WxAuthenticationFilter                  POST 微信登录
+  └─ LogoutFilter                            POST 登出（黑名单 + 吊销 refresh token）
+  └─ JwtAuthenticationFilter                 携带 token 的请求
+  └─ FilterSecurityInterceptor               授权判定
+```
+
+`JwtAuthenticationFilter` 的行为：
+
+1. 请求未携带 token（请求头 / Cookie）时直接放行，由授权规则决定是否需要认证；
+2. 命中白名单不做认证；
+3. 命中黑名单按过期处理；
+4. 认证异常交给失败处理器输出 401 JSON，不再向下执行。
+
+## 安全设计
+
+- **密钥**：`SHA-256(secret + ":" + username)` 派生每用户 HMAC-SHA256 密钥。不同用户的 token 互不可伪造，攻击者也无法自行推导密钥；`secret` 长度必须 >= 32（构造 `JwtTokenService` 时强校验）。
+- **强制校验链路**：算法必须是 HS256（拒绝 `alg=none` 混淆）、验签、`exp`、`nbf`、`iss`、`aud`、`tokenType`（refresh token 不能当 access token 用）。
+- **refresh token 轮换**：每次 `/refresh` 都会吊销旧的 refresh token；登出时吊销该用户全部 refresh token。
+- **登出立即失效**：黑名单 TTL = token 剩余有效期，不会无限增长。
+- **JWT 不加密**：不要在 payload 中放密码等敏感信息。
+
+## 可替换组件
+
+所有 Bean 都带 `@ConditionalOnMissingBean`，可逐个替换：
+
+| 接口 | 默认实现 | 说明 |
+| --- | --- | --- |
+| `TokenBlacklistStore` | `InMemoryTokenBlacklistStore` | 登出黑名单，集群部署请换 Redis |
+| `RefreshTokenStore` | `InMemoryRefreshTokenStore` | refresh token 元数据，集群部署请换 Redis |
+| `PasswordEncoder` | `BCryptPasswordEncoder` | 口令散列 |
+| `MobileCodeValidator` | 基于内存缓存的默认实现 | 短信验证码校验，生产建议接入短信中心 |
+| `SecurityFilterChain` | starter 内置 | 完全自定义安全配置时退让 |
+
+## 自定义
+
+- 关闭 starter：`jwt.security.enabled: false`
+- 关闭内置刷新端点：`jwt.security.endpoint-enabled: false`
+- 修改端点路径：`jwt.security.paths.*`
+- 静态资源免认证：`jwt.security.ignore-urls`
+- 扩展登录方式：实现对应的 `AbstractAuthenticationProcessingFilter` + `AuthenticationProvider`，再 `http.apply(...)` 插入过滤器链
+
+## 与有状态页面共存（多 SecurityFilterChain）
+
+starter 的链默认是 `STATELESS` 且接管全部路径。如果项目里还有需要 Session 的部分（OAuth2 网页登录、Passkey/WebAuthn、管理后台表单登录），两条链的 Session 策略会冲突。做法是把 starter 限定在 API 前缀下，业务方自己再注册一条链：
+
+```yaml
+jwt:
+  security:
+    security-matchers:
+      - /api/**
+      - /**/login
+      - /**/logout
+      - /refresh
+```
+
+```kotlin
+@Configuration
+class WebSecurityConfig {
+
+    /** 有状态的页面链，starter 的链不匹配这些路径时会落到这里 */
+    @Bean
+    @Order(2)
+    fun webFilterChain(http: HttpSecurity): SecurityFilterChain =
+        http {
+            authorizeHttpRequests { authorize(anyRequest, permitAll) }
+        }
+}
+```
+
+注意：多条链按 `@Order` 顺序匹配，**先匹配到的链生效**，所以有状态的链要放在后面（`@Order` 数值更大）。业务方自己定义 `WebSecurityCustomizer` Bean 也可以覆盖 starter 的 `ignore-urls` 行为。
+
+## 什么时候不该用这个 starter
+
+如果 token 是由**外部统一认证中心签发**的（Keycloak、Auth0、自建 IdP），不要用本 starter 自签自验，改用 Spring Security 原生的资源服务器：
+
+```kotlin
+@Bean
+fun securityFilterChain(http: HttpSecurity): SecurityFilterChain =
+    http {
+        oauth2ResourceServer { it.jwt(withDefaults()) }
+    }
+```
+
+```yaml
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://idp.example.com
+```
+
+本 starter 的定位是「单体 / 微服务内部自签 token」，两者可以共存，但不要把自签 token 和外部 JWT 混在同一条链里。
+
+## 测试
+
+```bash
+mvn -pl lhl-common/lhl-starter/jwt-starter/jwt-api test
+```
+
+覆盖签发/解析、密钥长度、篡改、异密钥、过期、iss/aud、token 类型隔离、刷新轮换、登出吊销、黑名单 TTL 与清理、每用户密钥隔离等。

@@ -1,36 +1,45 @@
 package com.lhl.jwt.security.filters
 
-import com.lhl.jwt.exception.JwtParamException
+import org.springframework.security.authentication.BadCredentialsException
+import com.lhl.jwt.security.AntPatternRequestMatcher
 import com.lhl.jwt.token.WxAuthenticationToken
-import io.github.oshai.kotlinlogging.KotlinLogging
-import org.springframework.security.authentication.AbstractAuthenticationToken
+import com.lhl.jwt.utils.JwtConstant
+import com.lhl.jwt.utils.RequestBodyUtils
 import org.springframework.security.core.Authentication
 import org.springframework.security.web.authentication.AbstractAuthenticationProcessingFilter
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher
+import org.springframework.util.StreamUtils
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
+import java.nio.charset.StandardCharsets
 
-class WxAuthenticationFilter : AbstractAuthenticationProcessingFilter(
-    AntPathRequestMatcher("/wxLogin", "POST")
+/**
+ * 微信登录过滤器（企业微信 / 公众号 / 小程序）：支持 JSON 请求体或表单参数。
+ */
+class WxAuthenticationFilter(loginPath: String) : AbstractAuthenticationProcessingFilter(
+    AntPatternRequestMatcher(loginPath, "POST")
 ) {
-
-    private val log = KotlinLogging.logger {}
-
-    override fun afterPropertiesSet() {
-        checkNotNull(authenticationManager) { "AuthenticationManager must be specified" }
-        checkNotNull(successHandler) { "AuthenticationSuccessHandler must be specified" }
-        checkNotNull(failureHandler) { "AuthenticationFailureHandler must be specified" }
-    }
 
     override fun attemptAuthentication(
         request: HttpServletRequest,
         response: HttpServletResponse
     ): Authentication {
-        val wxId = request.getParameter("wxId")
-        require(!wxId.isNullOrBlank()) { "wxId must not be empty" }
-        val mobile = request.getParameter("mobile")
-        val type = request.getParameter("type")
-        val authRequest: AbstractAuthenticationToken = WxAuthenticationToken(wxId, mobile, type)
-        return authenticationManager!!.authenticate(authRequest)
+        val body = StreamUtils.copyToString(request.inputStream, StandardCharsets.UTF_8)
+        val json = RequestBodyUtils.toJson(body)
+        val wxId = (json?.getStr(JwtConstant.SPRING_SECURITY_FORM_WX_ID_KEY)
+            ?: request.getParameter(JwtConstant.SPRING_SECURITY_FORM_WX_ID_KEY).orEmpty()).trim()
+        val mobile = json?.getStr(SPRING_SECURITY_FORM_MOBILE_KEY)
+            ?: request.getParameter(SPRING_SECURITY_FORM_MOBILE_KEY)
+        val type = json?.getStr(JwtConstant.SPRING_SECURITY_FORM_TYPE_KEY)
+            ?: request.getParameter(JwtConstant.SPRING_SECURITY_FORM_TYPE_KEY)
+        if (wxId.isEmpty()) {
+            throw BadCredentialsException("wxId must not be empty")
+        }
+        val authRequest = WxAuthenticationToken(wxId, mobile, type)
+        return authenticationManager.authenticate(authRequest)
+    }
+
+    companion object {
+
+        private const val SPRING_SECURITY_FORM_MOBILE_KEY = JwtConstant.SPRING_SECURITY_FORM_MOBILE_KEY
     }
 }

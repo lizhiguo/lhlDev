@@ -1,0 +1,582 @@
+### ============================================================================
+### jwt-spring-boot-sample 校验脚本（IntelliJ / VS Code HTTP Client）
+###
+### 前置条件
+###   1. MySQL 已启动，库 lhl_jwt_sample 可用（表与演示数据首次启动时自动创建）
+###   2. 示例应用已启动：运行 JwtSampleApplicationKt，或
+###        mvn -pl lhl-common/lhl-starter/jwt-starter/jwt-spring-boot-sample spring-boot:run
+###
+### 注意：脚本按文件顺序执行，各段依赖前面捕获的全局变量（*Token），请整体运行，
+###       不要单独点某一个请求。第 9 节会作废 adminToken，故放在最后。
+### ============================================================================
+
+### 文件级变量：无需在 IDE 里切换环境，直接运行即可
+### 如需多环境（dev / test），可改用同目录的 http-client.env.json，
+### 并在 IDE 右上角的环境选择器中指定。
+
+@baseUrl = http://localhost:8080
+
+# 演示账号，与 SampleDataInitializer 写入的数据一致
+@adminUsername = admin
+@adminPassword = admin123
+@userUsername = lhl
+@userPassword = lhl123
+@guestUsername = guest
+@guestPassword = guest123
+@blockedUsername = blocked
+@blockedPassword = blocked123
+
+# 手机验证码登录（示例验证码固定 123456）
+@mobile = 13800000002
+@smsCode = 123456
+
+# 微信登录：miniApp 按 openId，cp 按 mobile
+@wxOpenId = wx_openid_lhl
+@wxStaffMobile = 13800000001
+
+# 删除用例打在不存在的 id 上，避免破坏演示数据
+@notExistUserId = 9999
+
+
+#region 1. 白名单与未认证
+
+### 1.1 白名单端点无需 token
+# @name public-hello
+GET http://localhost:8080/public/hello
+
+> {%
+    client.test("白名单 /public/hello 放行", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+        client.assert(response.body.succ === true, "期望 succ=true，实际 " + response.body.msg);
+        client.assert(response.body.data === "hello, jwt starter", "返回体不符合预期");
+    });
+%}
+
+### 1.2 受保护端点不带 token -> 401
+# @name me-without-token
+GET {{baseUrl}}/me
+
+< {%
+    // 请求前脚本：清掉可能残留的 Cookie（示例开启了 cookie 模式），确保这一条真正无凭据
+    try {
+        client.clearCookies();
+    } catch (e) {
+        // 旧版本客户端无此 API，忽略
+    }
+%}
+
+> {%
+    client.test("未携带 token 返回 401", function () {
+        client.assert(response.status === 401, "期望 401，实际 " + response.status);
+    });
+%}
+
+### 1.3 伪造的非 JWT 串 -> 401
+# @name me-garbage-token
+GET {{baseUrl}}/me
+Authorization: Bearer not.a.real.jwt
+
+> {%
+    client.test("垃圾 token 返回 401", function () {
+        client.assert(response.status === 401, "期望 401，实际 " + response.status);
+    });
+%}
+
+#endregion
+
+
+#region 2. 账号密码登录（数据来自 MySQL，BCrypt 校验）
+
+### 2.1 admin 登录 -> 签发 token
+# @name login-admin
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "username": "{{adminUsername}}",
+  "password": "{{adminPassword}}"
+}
+
+> {%
+    client.test("admin 登录成功", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+        client.assert(response.body.succ === true, "期望登录成功，实际 " + response.body.msg);
+        const auth = response.headers.valueOf("Authorization") || "";
+        client.assert(auth.indexOf("Bearer ") === 0, "响应头 Authorization 缺少 Bearer <token>");
+        const token = auth.replace(/^Bearer\s+/i, "");
+        client.global.set("adminToken", token);
+        // 第 8 节要用：同一 token 改掉签名尾部，验证验签失败
+        client.global.set("tamperedToken", token.slice(0, -6) + "AAAAAA");
+    });
+%}
+
+### 2.2 lhl 登录（只有读权限）
+# @name login-lhl
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "username": "{{userUsername}}",
+  "password": "{{userPassword}}"
+}
+
+> {%
+    client.test("lhl 登录成功", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+        const auth = response.headers.valueOf("Authorization") || "";
+        client.global.set("userToken", auth.replace(/^Bearer\s+/i, ""));
+    });
+%}
+
+### 2.3 guest 登录（无任何角色/权限）
+# @name login-guest
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "username": "{{guestUsername}}",
+  "password": "{{guestPassword}}"
+}
+
+> {%
+    client.test("guest 登录成功（认证通过但无授权）", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+        const auth = response.headers.valueOf("Authorization") || "";
+        client.global.set("guestToken", auth.replace(/^Bearer\s+/i, ""));
+    });
+%}
+
+### 2.4 当前登录用户：账号、主键、角色权限
+# @name me
+GET {{baseUrl}}/me
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("/me 返回当前用户及权限", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+        const d = response.body.data;
+        client.assert(d.username === "admin", "用户名不符：" + d.username);
+        client.assert(d.userId !== undefined && d.userId !== null, "缺少 userId");
+        client.assert(String(d.userId).length > 0, "userId 不应为空");
+        client.assert(Array.isArray(d.authorities), "authorities 应为数组");
+        client.assert(d.authorities.indexOf("ROLE_ADMIN") >= 0, "缺少 ROLE_ADMIN");
+        client.assert(d.authorities.indexOf("USER_READ") >= 0, "缺少 USER_READ");
+        client.log("authorities = " + JSON.stringify(d.authorities));
+    });
+%}
+
+#endregion
+
+
+#region 3. 登录失败场景（均为 401）
+
+### 3.1 口令错误
+# @name login-wrong-password
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "username": "{{adminUsername}}",
+  "password": "wrong-password"
+}
+
+> {%
+    client.test("口令错误返回 401", function () {
+        client.assert(response.status === 401, "期望 401，实际 " + response.status);
+    });
+%}
+
+### 3.2 用户不存在
+# @name login-not-exists
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "username": "no-such-user",
+  "password": "whatever"
+}
+
+> {%
+    client.test("用户不存在返回 401", function () {
+        client.assert(response.status === 401, "期望 401，实际 " + response.status);
+    });
+%}
+
+### 3.3 账号被禁用（status=0，登录前即被拒，不进入口令比对）
+# @name login-blocked
+POST {{baseUrl}}/login
+Content-Type: application/json
+
+{
+  "username": "{{blockedUsername}}",
+  "password": "{{blockedPassword}}"
+}
+
+> {%
+    client.test("禁用账号登录被拒 401", function () {
+        client.assert(response.status === 401, "期望 401，实际 " + response.status);
+    });
+%}
+
+#endregion
+
+#region 4. 手机验证码登录
+
+### 4.1 下发验证码（示例固定 123456）
+# @name sms-send-code
+POST {{baseUrl}}/sms/code/{{mobile}}
+
+> {%
+    client.test("验证码下发成功", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+        client.assert(response.body.data.mobile === "13800000002", "手机号不符");
+        client.assert(response.body.data.code === "123456", "演示验证码应为 123456");
+    });
+%}
+
+### 4.2 正确验证码登录（一次性，验证码被消费）
+# @name login-mobile-code
+POST {{baseUrl}}/mobileCodeLogin
+Content-Type: application/json
+
+{
+  "mobile": "{{mobile}}",
+  "code": "{{smsCode}}"
+}
+
+> {%
+    client.test("手机验证码登录成功", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+        const auth = response.headers.valueOf("Authorization") || "";
+        client.global.set("mobileToken", auth.replace(/^Bearer\s+/i, ""));
+    });
+%}
+
+### 4.3 重放同一个验证码 -> 401（一次性消费）
+# @name login-mobile-code-replay
+POST {{baseUrl}}/mobileCodeLogin
+Content-Type: application/json
+
+{
+  "mobile": "{{mobile}}",
+  "code": "{{smsCode}}"
+}
+
+> {%
+    client.test("验证码重放返回 401", function () {
+        client.assert(response.status === 401, "期望 401，实际 " + response.status);
+    });
+%}
+
+### 4.4 错误验证码 -> 401
+# @name login-mobile-code-wrong
+POST {{baseUrl}}/mobileCodeLogin
+Content-Type: application/json
+
+{
+  "mobile": "{{mobile}}",
+  "code": "000000"
+}
+
+> {%
+    client.test("错误验证码返回 401", function () {
+        client.assert(response.status === 401, "期望 401，实际 " + response.status);
+    });
+%}
+
+#endregion
+
+
+#region 5. 微信登录
+
+### 5.1 小程序 openId 登录
+# @name login-wx-miniapp
+POST {{baseUrl}}/wxLogin
+Content-Type: application/json
+
+{
+  "wxId": "{{wxOpenId}}",
+  "type": "miniApp"
+}
+
+> {%
+    client.test("小程序 openId 登录成功", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+        const auth = response.headers.valueOf("Authorization") || "";
+        client.global.set("wxToken", auth.replace(/^Bearer\s+/i, ""));
+    });
+%}
+
+### 5.2 企业微信 cp 按手机号登录
+# @name login-wx-cp
+POST {{baseUrl}}/wxLogin
+Content-Type: application/json
+
+{
+  "wxId": "staff-001",
+  "mobile": "{{wxStaffMobile}}",
+  "type": "cp"
+}
+
+> {%
+    client.test("企业微信 cp 登录成功", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+    });
+%}
+
+### 5.3 未绑定的 openId -> 401
+# @name login-wx-unknown
+POST {{baseUrl}}/wxLogin
+Content-Type: application/json
+
+{
+  "wxId": "wx_not_bound",
+  "type": "miniApp"
+}
+
+> {%
+    client.test("未绑定 openId 返回 401", function () {
+        client.assert(response.status === 401, "期望 401，实际 " + response.status);
+    });
+%}
+
+#endregion
+
+
+#region 6. 令牌校验与刷新
+
+### 6.1 换一份完整令牌对（内置 /login 只给 accessToken，refreshToken 在这里取）
+# @name auth-token
+POST {{baseUrl}}/auth/token
+Authorization: Bearer {{userToken}}
+
+> {%
+    client.test("签发完整令牌对", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+        const d = response.body.data;
+        client.assert(typeof d.accessToken === "string" && d.accessToken.length > 0, "缺少 accessToken");
+        client.assert(typeof d.refreshToken === "string" && d.refreshToken.length > 0, "缺少 refreshToken");
+        client.assert(d.tokenType === "Bearer", "tokenType 应为 Bearer");
+        client.assert(d.expiresIn === 7200, "access token 有效期应为 7200 秒，实际 " + d.expiresIn);
+        client.global.set("refreshToken", d.refreshToken);
+    });
+%}
+
+### 6.2 刷新令牌：旧 refreshToken 被吊销（轮换），签发新的一对
+# @name refresh-first
+POST {{baseUrl}}/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}"
+}
+
+> {%
+    client.test("首次刷新成功", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+        client.assert(response.body.succ === true, "期望刷新成功，实际 " + response.body.msg);
+    });
+%}
+
+### 6.3 重复使用已轮换掉的 refreshToken -> 失败
+# @name refresh-reuse
+POST {{baseUrl}}/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}"
+}
+
+> {%
+    client.test("旧 refreshToken 已失效（轮换）", function () {
+        client.assert(response.body.succ === false, "轮换后旧 refreshToken 不应再用成功");
+    });
+%}
+
+### 6.4 refreshToken 为空 -> 业务失败
+# @name refresh-empty
+POST {{baseUrl}}/refresh
+Content-Type: application/json
+
+{}
+
+> {%
+    client.test("refreshToken 为空返回业务失败", function () {
+        client.assert(response.status === 200, "接口本身返回 200，实际 " + response.status);
+        client.assert(response.body.succ === false, "应返回 succ=false");
+        client.assert(response.body.code === "400", "应返回 code=400，实际 " + response.body.code);
+    });
+%}
+
+#endregion
+
+#region 7. 权限校验（401=未认证，403=已认证但无权限）
+
+### 7.1 admin：全部放行
+# @name admin-list-users
+GET {{baseUrl}}/user/list
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("admin 拥有 USER_READ", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+        client.assert(Array.isArray(response.body.data), "应返回用户数组");
+        // 记下一个真实用户 ID，后续写操作复用，避免硬编码主键
+        if (response.body.data.length > 0) {
+            client.global.set("someUserId", response.body.data[0].id);
+        }
+    });
+%}
+
+# @name admin-roles
+GET {{baseUrl}}/admin/roles
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("admin 拥有 ROLE_ADMIN", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+        client.assert(response.body.data.length >= 5, "角色清单应有 2 个角色 + 3 个权限");
+    });
+%}
+
+# @name admin-write-user
+POST {{baseUrl}}/user/{{someUserId}}/status?status=1
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("admin 拥有 USER_WRITE", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+        client.assert(response.body.succ === true, "期望写入成功，实际 " + response.body.msg);
+        client.assert(response.body.data.status === 1, "状态应为 1");
+    });
+%}
+
+# @name admin-delete-user
+DELETE {{baseUrl}}/user/{{notExistUserId}}
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("admin 拥有 USER_DELETE（目标不存在返回业务 404）", function () {
+        client.assert(response.status === 200, "接口本身返回 200，实际 " + response.status);
+        client.assert(response.body.code === "404", "应返回 code=404，实际 " + response.body.code);
+    });
+%}
+
+### 7.2 lhl：只有 USER_READ
+# @name lhl-list-users
+GET {{baseUrl}}/user/list
+Authorization: Bearer {{userToken}}
+
+> {%
+    client.test("lhl 拥有 USER_READ，可查列表", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+    });
+%}
+
+# @name lhl-write-user-denied
+POST {{baseUrl}}/user/{{someUserId}}/status?status=1
+Authorization: Bearer {{userToken}}
+
+> {%
+    client.test("lhl 缺少 USER_WRITE，返回 403", function () {
+        client.assert(response.status === 403, "期望 403，实际 " + response.status);
+    });
+%}
+
+# @name lhl-admin-denied
+GET {{baseUrl}}/admin/roles
+Authorization: Bearer {{userToken}}
+
+> {%
+    client.test("lhl 不是管理员，返回 403", function () {
+        client.assert(response.status === 403, "期望 403，实际 " + response.status);
+    });
+%}
+
+### 7.3 guest：无任何角色/权限，全部 403
+# @name guest-list-users-denied
+GET {{baseUrl}}/user/list
+Authorization: Bearer {{guestToken}}
+
+> {%
+    client.test("guest 缺少 USER_READ，返回 403", function () {
+        client.assert(response.status === 403, "期望 403，实际 " + response.status);
+    });
+%}
+
+# @name guest-admin-denied
+GET {{baseUrl}}/admin/roles
+Authorization: Bearer {{guestToken}}
+
+> {%
+    client.test("guest 无角色，返回 403", function () {
+        client.assert(response.status === 403, "期望 403，实际 " + response.status);
+    });
+%}
+
+#endregion
+
+
+#region 8. token 攻击面
+
+### 8.1 篡改签名的 token -> 401（tamperedToken 在 2.1 登录时一并生成）
+# @name tampered-token
+GET {{baseUrl}}/me
+Authorization: Bearer {{tamperedToken}}
+
+> {%
+    client.test("签名被篡改的 token 返回 401", function () {
+        client.assert(response.status === 401, "期望 401，实际 " + response.status);
+    });
+%}
+
+### 8.2 alg=none 伪造 -> 401
+# @name alg-none-token
+GET {{baseUrl}}/me
+Authorization: Bearer eyJhbGciOiJub25lIn0.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJST0xFX0FETUlOIn0.
+
+> {%
+    client.test("alg=none 伪造 token 返回 401", function () {
+        client.assert(response.status === 401, "期望 401，实际 " + response.status);
+    });
+%}
+
+#endregion
+
+
+#region 9. 登出（放最后：会作废 adminToken）
+
+### 9.1 登出前可访问
+# @name me-before-logout
+GET {{baseUrl}}/me
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("登出前 token 有效", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+    });
+%}
+
+### 9.2 登出
+# @name logout
+POST {{baseUrl}}/logout
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("登出成功", function () {
+        client.assert(response.status === 200, "期望 200，实际 " + response.status);
+    });
+%}
+
+### 9.3 登出后 token 立即失效（黑名单）
+# @name me-after-logout
+GET {{baseUrl}}/me
+Authorization: Bearer {{adminToken}}
+
+> {%
+    client.test("登出后 token 立即返回 401", function () {
+        client.assert(response.status === 401, "期望 401，实际 " + response.status);
+    });
+%}
+
+#endregion

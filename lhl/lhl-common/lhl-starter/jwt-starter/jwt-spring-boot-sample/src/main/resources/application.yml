@@ -1,0 +1,62 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: jwt-spring-boot-sample
+  datasource:
+    # 本地 Docker MySQL；生产环境用环境变量注入
+    url: ${DB_URL:jdbc:mysql://localhost:3306/lhl_jwt_sample?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:admin}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      pool-name: JwtSampleHikariPool
+      maximum-pool-size: 10
+      minimum-idle: 2
+  sql:
+    init:
+      # 建表脚本在 classpath:schema.sql，幂等（CREATE TABLE IF NOT EXISTS）
+      mode: always
+      schema-locations: classpath:schema.sql
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
+jwt:
+  security:
+    # 生产环境务必用环境变量注入，长度 >= 32
+    secret: ${JWT_SECRET:lhl-jwt-sample-secret-please-change-me-in-production}
+    issuer: lhl-sample
+    audience: lhl-client
+    # access token 2 小时过期，refresh token 7 天
+    access-token-expiration: 2h
+    refresh-token-expiration: 7d
+    # 距上次签发超过 30 分钟自动续期（写回响应头）
+    token-refresh-interval: 30m
+    # 无需认证的路径
+    permit-urls:
+      - /public/**
+      - /sms/code/**
+      - /actuator/**
+    # 完全绕过 security 过滤器链（静态资源，连 JwtAuthenticationFilter 都不经过）
+    ignore-urls:
+      - /favicon.ico
+      - /static/**
+      - /error
+      - /webjars/**
+    # HttpOnly Cookie 承载 token（浏览器端更安全）
+    cookie:
+      enabled: true
+      http-only: true
+      secure: false
+      same-site: Lax
+    cors:
+      enabled: true
+      allowed-origin-patterns:
+        - "http://localhost:*"
+
+logging:
+  level:
+    com.lhl.jwt: debug

@@ -1,50 +1,77 @@
 package com.lhl.jwt.utils
 
-import org.slf4j.LoggerFactory
+import io.github.oshai.kotlinlogging.KotlinLogging
 import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * 轻量级内存缓存，基于 ConcurrentHashMap。
+ *
+ * jwt-starter 内部已用语义化的 [com.lhl.jwt.store.TokenBlacklistStore] /
+ * [com.lhl.jwt.store.RefreshTokenStore] 抽象替代直接使用本缓存，
+ * 保留该工具类仅为兼容既有代码与通用缓存场景。
+ */
 object CacheManager {
 
-    private val logger = LoggerFactory.getLogger(CacheManager::class.java)
+    private val log = KotlinLogging.logger {}
+
     private val cacheData = ConcurrentHashMap<String, CacheData<Any>>()
-    const val ALWAYS_ACTIVE = 0
+
+    /** 永不过期 */
+    const val ALWAYS_ACTIVE: Long = 0
 
     @Suppress("UNCHECKED_CAST")
+    @JvmStatic
     fun <T> getData(key: String): T? {
         val data = cacheData[key] ?: return null
-        return if (data.expire <= ALWAYS_ACTIVE || data.saveTime >= System.currentTimeMillis()) {
-            data.data as T
-        } else null
+        if (data.isExpired()) {
+            cacheData.remove(key)
+            return null
+        }
+        return data.data as T
     }
 
-    fun <T> setData(key: String, data: T, expire: Int) {
-        cacheData[key] = CacheData(data, expire)
+    @JvmStatic
+    @JvmOverloads
+    fun <T : Any> setData(key: String, data: T, expire: Long = ALWAYS_ACTIVE) {
+        cacheData[key] = CacheData<Any>(data, expire)
     }
 
+    @JvmStatic
     fun clear(key: String) {
         cacheData.remove(key)
     }
 
+    @JvmStatic
     fun clearAll() {
         cacheData.clear()
     }
 
-    fun clearExpire() {
-        logger.info("clear token cache starting, current cache size is {}", cacheData.size)
+    /** 清理已过期条目，返回被清理的条数 */
+    @JvmStatic
+    fun clearExpire(): Int {
+        var cleared = 0
         val iterator = cacheData.entries.iterator()
         while (iterator.hasNext()) {
-            val entry = iterator.next()
-            val cache = entry.value
-            if (System.currentTimeMillis() - cache.saveTime >= 0) {
+            if (iterator.next().value.isExpired()) {
                 iterator.remove()
-                logger.info("clear token {}", entry.key)
+                cleared++
             }
         }
-        logger.info("clear token cache started, current cache size is {}", cacheData.size)
+        if (cleared > 0) {
+            log.debug { "clear expired jwt cache, cleared = $cleared, remaining = ${cacheData.size}" }
+        }
+        return cleared
     }
 
-    private class CacheData<T>(val data: T, expire: Int) {
-        val saveTime: Long = System.currentTimeMillis() + if (expire <= 0) 0 else expire
-        val expire: Long = if (expire <= 0) 0 else expire.toLong()
+    @JvmStatic
+    fun size(): Int = cacheData.size
+
+    private class CacheData<T>(val data: T, expire: Long) {
+
+        /** 0 表示永不过期 */
+        private val expireAt: Long =
+            if (expire <= ALWAYS_ACTIVE) ALWAYS_ACTIVE else System.currentTimeMillis() + expire
+
+        fun isExpired(): Boolean = expireAt > ALWAYS_ACTIVE && System.currentTimeMillis() >= expireAt
     }
 }

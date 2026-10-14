@@ -40,6 +40,8 @@
 
         <hutools.version>7.0.0-M5</hutools.version>
 
+        <nimbus-jose-jwt.version>10.9.1</nimbus-jose-jwt.version>
+
         <swagger.version>2.2.41</swagger.version>
         <oshai-logging.version>7.0.13</oshai-logging.version>
         <log4j-api-kotlin.version>1.5.0</log4j-api-kotlin.version>
@@ -143,6 +145,12 @@
             </dependency>
 
             <dependency>
+                <groupId>com.nimbusds</groupId>
+                <artifactId>nimbus-jose-jwt</artifactId>
+                <version>${nimbus-jose-jwt.version}</version>
+            </dependency>
+
+            <dependency>
                 <groupId>io.swagger.core.v3</groupId>
                 <artifactId>swagger-annotations-jakarta</artifactId>
                 <version>${swagger.version}</version>
@@ -200,6 +208,21 @@
             <dependency>
                 <groupId>com.lhl</groupId>
                 <artifactId>api-autoconfigure</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>jwt-api</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>jwt-autoconfigure</artifactId>
+                <version>${revision}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.lhl</groupId>
+                <artifactId>jwt-spring-boot-starter</artifactId>
                 <version>${revision}</version>
             </dependency>
         </dependencies>

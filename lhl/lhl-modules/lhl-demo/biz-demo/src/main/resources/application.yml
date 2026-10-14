@@ -1,0 +1,37 @@
+spring:
+  application:
+    name: lhl-dict
+  datasource:
+    url: jdbc:h2:mem:dict;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: true
+  # 关闭 Spring Modulith 对缺失模块元数据的告警（本模块未拆分多模块）
+  modulith:
+    events:
+      republish-on-restart: false
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.lhl.dict.api.model
+  configuration:
+    map-underscore-to-camel-case: true
+
+pagehelper:
+  helper-dialect: h2
+  reasonable: true
+  support-methods-arguments: true
+  params: count=countSql
+
+logging:
+  level:
+    com.lhl.dict: debug
+    org.hibernate.SQL: debug

@@ -1,61 +1,55 @@
 package com.lhl.jwt.security.filters
 
-import cn.hutool.v7.core.util.StrUtil
-import cn.hutool.v7.json.JSONObject
-import cn.hutool.v7.json.JSONUtil
-import com.lhl.jwt.service.JwtUserDetailsService
+import org.springframework.security.authentication.BadCredentialsException
+import com.lhl.jwt.security.AntPatternRequestMatcher
 import com.lhl.jwt.token.MobileCodeAuthenticationToken
-import org.springframework.security.authentication.AbstractAuthenticationToken
+import com.lhl.jwt.utils.JwtConstant
+import com.lhl.jwt.utils.RequestBodyUtils
 import org.springframework.security.core.Authentication
 import org.springframework.security.web.authentication.AbstractAuthenticationProcessingFilter
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher
 import org.springframework.util.StreamUtils
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
-import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
 
-class MobileCodeAuthenticationFilter : AbstractAuthenticationProcessingFilter(
-    AntPathRequestMatcher("/mobileCodeLogin", "POST")
+/**
+ * 手机号 + 验证码登录过滤器：支持 JSON 请求体或表单参数。
+ */
+class MobileCodeAuthenticationFilter(loginPath: String) : AbstractAuthenticationProcessingFilter(
+    AntPatternRequestMatcher(loginPath, "POST")
 ) {
 
-    companion object {
-        const val SPRING_SECURITY_FORM_MOBILE_KEY = "mobile"
-        const val SPRING_SECURITY_FORM_CODE_KEY = "code"
-    }
+    private var mobileParameter: String = JwtConstant.SPRING_SECURITY_FORM_MOBILE_KEY
 
-    private var mobileParameter = SPRING_SECURITY_FORM_MOBILE_KEY
-    private var codeParameter = SPRING_SECURITY_FORM_CODE_KEY
-    private var jwtUserDetailsService: JwtUserDetailsService? = null
-
-    override fun afterPropertiesSet() {
-        checkNotNull(authenticationManager) { "AuthenticationManager must be specified" }
-        checkNotNull(successHandler) { "AuthenticationSuccessHandler must be specified" }
-        checkNotNull(failureHandler) { "AuthenticationFailureHandler must be specified" }
-    }
+    private var codeParameter: String = JwtConstant.SPRING_SECURITY_FORM_CODE_KEY
 
     override fun attemptAuthentication(
         request: HttpServletRequest,
         response: HttpServletResponse
     ): Authentication {
-        val body = StreamUtils.copyToString(request.inputStream, Charset.forName("UTF-8"))
-
-        val (mobile, code) = if (StrUtil.isBlank(body)) {
-            request.getParameter(mobileParameter).orEmpty() to
-                request.getParameter(codeParameter).orEmpty()
+        val body = StreamUtils.copyToString(request.inputStream, StandardCharsets.UTF_8)
+        val mobile: String
+        val code: String
+        if (body.isBlank()) {
+            mobile = request.getParameter(mobileParameter).orEmpty().trim()
+            code = request.getParameter(codeParameter).orEmpty().trim()
         } else {
-            val jsonObj = JSONUtil.toBean(body.trim(), JSONObject::class.java)
-            jsonObj.getStr(mobileParameter).orEmpty() to
-                jsonObj.getStr(codeParameter).orEmpty()
+            val json = RequestBodyUtils.toJson(body)
+            mobile = (json?.getStr(mobileParameter) ?: "").trim()
+            code = (json?.getStr(codeParameter) ?: "").trim()
         }
-
-        val authRequest: AbstractAuthenticationToken = MobileCodeAuthenticationToken(mobile.trim(), code.trim())
-        authRequest.details = authenticationDetailsSource.buildDetails(request)
-        return authenticationManager!!.authenticate(authRequest)
+        if (mobile.isEmpty() || code.isEmpty()) {
+            throw BadCredentialsException("mobile and code must not be empty")
+        }
+        val authRequest = MobileCodeAuthenticationToken(mobile, code)
+        return authenticationManager.authenticate(authRequest)
     }
 
-    fun getJwtUserDetailsService(): JwtUserDetailsService? = jwtUserDetailsService
+    fun setMobileParameter(mobileParameter: String) {
+        this.mobileParameter = mobileParameter
+    }
 
-    fun setJwtUserDetailsService(jwtUserDetailsService: JwtUserDetailsService) {
-        this.jwtUserDetailsService = jwtUserDetailsService
+    fun setCodeParameter(codeParameter: String) {
+        this.codeParameter = codeParameter
     }
 }

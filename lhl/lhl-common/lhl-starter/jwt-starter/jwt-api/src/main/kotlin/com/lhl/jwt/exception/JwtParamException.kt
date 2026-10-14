@@ -1,5 +1,9 @@
 package com.lhl.jwt.exception
 
-import com.lhl.common.core.exception.BizException
-
-class JwtParamException(msg: String) : BizException(msg)
+/**
+ * 请求参数非法（登录参数缺失等），属于 400 语义，不做 401 降级处理。
+ */
+class JwtParamException @JvmOverloads constructor(
+    message: String,
+    cause: Throwable? = null
+) : IllegalArgumentException(message, cause)

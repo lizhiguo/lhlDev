@@ -16,7 +16,11 @@ data class PayloadDTO(
     var gender: String? = null,
     var birthday: String? = null,
     var isAdmin: Boolean? = null,
-    var authorities: List<String>? = null
+    var authorities: List<String>? = null,
+    /**
+     * token 类型：access / refresh，用于阻止 refresh token 被当作 access token 使用。
+     */
+    var tokenType: String? = null
 ) : Serializable {
     companion object {
         private const val serialVersionUID = 5988619597830511341L

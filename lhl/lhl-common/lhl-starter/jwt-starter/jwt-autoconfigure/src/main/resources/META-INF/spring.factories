@@ -1,3 +1,6 @@
-# Auto Configure
-org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
-com.lhl.jwt.autoconfigure.SecurityConfig
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=
+com.lhl.jwt.autoconfigure.JwtSecurityAutoConfiguration
+com.lhl.jwt.autoconfigure.JwtSecurityFilterChainAutoConfiguration
+com.lhl.jwt.autoconfigure.JwtWebMvcAutoConfiguration
+com.lhl.jwt.autoconfigure.MobileCodeValidatorAutoConfiguration
+com.lhl.jwt.autoconfigure.JwtTokenEndpointAutoConfiguration

@@ -1,76 +1,52 @@
 package com.lhl.jwt.handler
 
-import com.lhl.jwt.exception.JwtSignatureVerifyException
-import com.lhl.jwt.service.JwtUserDetailsService
-import com.lhl.jwt.token.JwtAuthenticationToken
-import com.lhl.jwt.utils.JwtConstant
+import com.lhl.jwt.service.JwtTokenService
 import com.lhl.jwt.utils.JwtUtils
-import com.nimbusds.jose.JOSEException
-import com.nimbusds.jwt.SignedJWT
 import io.github.oshai.kotlinlogging.KotlinLogging
 import org.springframework.security.core.Authentication
-import org.springframework.security.core.userdetails.UserCache
 import org.springframework.security.core.userdetails.UserDetails
-import org.springframework.security.core.userdetails.cache.NullUserCache
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
-import java.text.ParseException
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.util.Date
 
+/**
+ * 自动续期处理器。
+ *
+ * 当距上次签发超过 jwt.security.token-refresh-interval 时，
+ * 重新签发 access token 并写回响应头（前端需读取响应头并替换本地 token）。
+ *
+ * 续期不影响本次请求：无论是否续期，认证都会继续沿过滤器链向下执行。
+ */
 class JwtRefreshSuccessHandler(
-    private val jwtUserDetailsService: JwtUserDetailsService
+    private val jwtTokenService: JwtTokenService
 ) : AuthenticationSuccessHandler {
 
     private val log = KotlinLogging.logger {}
-
-    var tokenRefreshInterval: Int = 0
-    private var userCache: UserCache = NullUserCache()
 
     override fun onAuthenticationSuccess(
         request: HttpServletRequest,
         response: HttpServletResponse,
         authentication: Authentication
     ) {
-        val token = (authentication as JwtAuthenticationToken).token ?: return
-        log.debug { "jwt==$token" }
+        val settings = jwtTokenService.configuration
+        if (!settings.tokenAutoRefresh) {
+            return
+        }
+        val token = JwtUtils.resolveToken(request, settings.header, settings.tokenPrefix, settings.cookieName)
+        if (token.isNullOrBlank()) {
+            return
+        }
         try {
-            val signedJwt = SignedJWT.parse(token)
-            if (shouldTokenRefresh(signedJwt)) {
-                val user = authentication.principal as UserDetails
-                userCache.putUserInCache(user)
-                val newToken = generateToken(user, user.username)
-                response.setHeader(JwtConstant.AUTHORIZATION_HEADER, JwtConstant.AUTHORIZATION_START_STRING + newToken)
-                response.setHeader(JwtConstant.ACCESS_CONTROL_EXPOSE_HEADER, JwtConstant.AUTHORIZATION_HEADER)
-                log.info { "token refresh, new token : $newToken" }
+            val payload = jwtTokenService.parse(token)
+            if (!jwtTokenService.shouldAutoRefresh(payload)) {
+                return
             }
-        } catch (e: ParseException) {
-            throw JwtSignatureVerifyException("生成TOKEN异常")
+            val user = authentication.principal as? UserDetails ?: return
+            val newToken = jwtTokenService.createAccessToken(user)
+            TokenResponseWriter.writeToken(response, settings, newToken)
+            log.info { "token auto refreshed, user = ${user.username}" }
+        } catch (e: Exception) {
+            log.warn { "auto refresh skipped: ${e.message}" }
         }
-    }
-
-    private fun shouldTokenRefresh(signedJwt: SignedJWT): Boolean {
-        if (tokenRefreshInterval == 0) return false
-        return try {
-            val issueAt = signedJwt.jwtClaimsSet.issueTime
-            val issueTime = LocalDateTime.ofInstant(issueAt.toInstant(), ZoneId.systemDefault())
-            LocalDateTime.now().minusSeconds(tokenRefreshInterval.toLong()).isAfter(issueTime)
-        } catch (e: ParseException) {
-            false
-        }
-    }
-
-    private fun generateToken(user: UserDetails, salt: String): String {
-        return try {
-            JwtUtils.createToken(user.username, user.authorities, salt)
-        } catch (e: JOSEException) {
-            throw JwtSignatureVerifyException("生成TOKEN异常")
-        }
-    }
-
-    fun setUserCache(userCache: UserCache) {
-        this.userCache = userCache
     }
 }
